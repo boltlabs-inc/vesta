@@ -157,7 +157,11 @@ fn derive_match_struct(
     } else {
         Error::new(
             fields_span,
-            "Cannot derive `Match` for a struct with more than one named field",
+            format!(
+                "cannot derive `Match` for the struct `{i}` with more than one named field\n\
+            consider making `{i}` a tuple struct, or a wrapper for another type with named fields",
+                i = ident
+            ),
         )
         .to_compile_error()
         .into()
@@ -228,7 +232,8 @@ fn derive_match_enum(
             } else {
                 Error::new(
                     fields_span,
-                    "Cannot derive `Match` for an enum variant with more than one named field",
+                    format!("cannot derive `Match` for the enum variant `{i}::{c}` with more than one named field\n\
+                    consider making `{i}::{c}` a tuple variant, or a wrapper for another type with named fields", i = ident, c = constructor),
                 )
                 .to_compile_error()
             }
