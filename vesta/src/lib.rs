@@ -41,6 +41,7 @@ pub unsafe trait Match: Sized {
 }
 
 // TODO: use call-by crate to allow matching by ref/mut
+// will need to have a CPS version to allow references?
 
 /// An implementation of [`Case`] defines a particular case of a pattern match for a type.
 pub trait Case<const N: usize>: Match {
