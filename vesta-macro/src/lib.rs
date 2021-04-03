@@ -82,7 +82,7 @@ fn case_impl(
 ) -> Option<Item> {
     let vesta_path = vesta_path();
     let case_types = ordered_fields_types(fields.clone())?;
-    let (case_body, uncase_body) = match field_names(fields) {
+    let (case_body, uncase_body, try_case_body) = match field_names(fields) {
         // In the case of unnamed fields...
         Err(params) => {
             let names: Punctuated<Ident, Token![,]> = (0usize..)
@@ -92,14 +92,21 @@ fn case_impl(
             (
                 quote!({
                     if let #constructor(#names) = self {
-                        ::std::result::Result::Ok((#names))
+                        (#names)
                     } else {
-                        ::std::result::Result::Err(self)
+                        ::std::hint::unreachable_unchecked()
                     }
                 }),
                 quote!({
                     let (#names) = case;
                     #constructor(#names)
+                }),
+                quote!({
+                    if let #constructor(#names) = self {
+                        ::std::result::Result::Ok((#names))
+                    } else {
+                        ::std::result::Result::Err(self)
+                    }
                 }),
             )
         }
@@ -107,14 +114,21 @@ fn case_impl(
         Ok(field_names) => (
             quote!({
                 if let #constructor { #field_names } = self {
-                    ::std::result::Result::Ok((#field_names))
+                    (#field_names)
                 } else {
-                    ::std::result::Result::Err(self)
+                    ::std::hint::unreachable_unchecked()
                 }
             }),
             quote!({
                 let (#field_names) = case;
                 #constructor { #field_names }
+            }),
+            quote!({
+                if let #constructor { #field_names } = self {
+                    ::std::result::Result::Ok((#field_names))
+                } else {
+                    ::std::result::Result::Err(self)
+                }
             }),
         ),
     };
@@ -123,8 +137,9 @@ fn case_impl(
     Some(parse_quote! {
         impl #generics #vesta_path::Case<#n> for #ident #generics #where_clause {
             type Case = ( #case_types );
-            fn case(self) -> ::std::result::Result<Self::Case, Self> #case_body
+            unsafe fn case(self) -> Self::Case #case_body
             fn uncase(case: Self::Case) -> Self #uncase_body
+            fn try_case(self) -> ::std::result::Result<Self::Case, Self> #try_case_body
         }
     })
 }
@@ -146,7 +161,7 @@ fn derive_match_struct(
         let vesta_path = vesta_path();
         let where_clause = &generics.where_clause;
         TokenStream::from(quote! {
-            impl #generics #vesta_path::Match for #ident #generics #where_clause {
+            unsafe impl #generics #vesta_path::Match for #ident #generics #where_clause {
                 fn tag(&self) -> ::std::option::Option<::std::primitive::usize> {
                     ::std::option::Option::Some(0)
                 }
@@ -203,7 +218,7 @@ fn derive_match_enum(
     };
     let where_clause = &generics.where_clause;
     let mut output = quote! {
-        impl #generics #vesta_path::Match for #ident #generics #where_clause {
+        unsafe impl #generics #vesta_path::Match for #ident #generics #where_clause {
             fn tag(&self) -> ::std::option::Option<::std::primitive::usize> {
                 #tag_match
             }
