@@ -13,7 +13,6 @@ use std::{
 #[doc(hidden)]
 pub mod internal {
     pub use super::*;
-    pub use static_assertions::{assert_impl_all, assert_not_impl_any};
 }
 
 /// A type which is [`Match`] can be pattern-matched using Vesta's extensible pattern matching.
