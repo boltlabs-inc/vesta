@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro_crate::FoundCrate;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use std::{env, iter::FromIterator};
 use syn::{
     parse_macro_input, parse_quote, punctuated::Punctuated, spanned::Spanned, token::Brace, Arm,
@@ -9,17 +9,55 @@ use syn::{
     FieldsUnnamed, Generics, Ident, Item, Path, Token, Type, Variant,
 };
 
+mod case_macro;
+use case_macro::CaseInput;
+
+#[proc_macro]
+pub fn case(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as CaseInput);
+    match input.compile() {
+        Ok(output) => output.to_token_stream().into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
 #[proc_macro]
 pub fn derive_match(input: TokenStream) -> TokenStream {
+    derive_match_impl(input)
+}
+
+/// Derive `Match`, `Case`, and `Exhaustive` for a "foreign" struct or enum, given its declaration.
+///
+/// This is only useful within the `vesta` crate itself, because otherwise it will generate an
+/// orphan impl. We use this as shorthand to declare a large set of instances to cover most of the
+/// standard library.
+#[proc_macro_derive(Match)]
+pub fn derive_match_derive(input: TokenStream) -> TokenStream {
+    derive_match_impl(input)
+}
+
+/// Derive `Match`, `Case`, and `Exhaustive` for a struct or enum, given its declaration.
+pub(crate) fn derive_match_impl(input: TokenStream) -> TokenStream {
     let DeriveInput {
         ident,
         generics,
         data,
+        attrs,
         ..
     } = parse_macro_input!(input as DeriveInput);
+    // Determine if the enum is exhaustive
+    let mut exhaustive = true;
+    for attr in attrs {
+        if let Some(ident) = attr.path.get_ident() {
+            if ident == "non_exhaustive" {
+                exhaustive = false;
+            }
+        }
+    }
+
     match data {
         Data::Struct(s) => derive_match_struct(ident, generics, s),
-        Data::Enum(e) => derive_match_enum(ident, generics, e),
+        Data::Enum(e) => derive_match_enum(exhaustive, ident, generics, e),
         Data::Union(_) => Error::new(
             Span::call_site(),
             "Cannot derive `Match` for a union, since unions lack a tag",
@@ -27,16 +65,6 @@ pub fn derive_match(input: TokenStream) -> TokenStream {
         .to_compile_error()
         .into(),
     }
-}
-
-/// Derive `Match` and `Case` for a "foreign" struct or enum, given its declaration.
-///
-/// This is only useful within the `vesta` crate itself, because otherwise it will generate an
-/// orphan impl. We use this as shorthand to declare a large set of instances to cover most of the
-/// standard library.
-#[proc_macro_derive(Match)]
-pub fn derive_match_derive(input: TokenStream) -> TokenStream {
-    derive_match(input)
 }
 
 /// Extract an ordered sequence of field types from a list of fields as `()`, a single `T`, or a
@@ -167,6 +195,8 @@ fn derive_match_struct(
                 }
             }
 
+            unsafe impl #generics #vesta_path::Exhaustive<1> for #ident #generics #where_clause {}
+
             #case_impl
         })
     } else {
@@ -185,11 +215,15 @@ fn derive_match_struct(
 
 /// Derive `Match` for an `enum`
 fn derive_match_enum(
+    exhaustive: bool,
     ident: Ident,
     generics: Generics,
     DataEnum { variants, .. }: DataEnum,
 ) -> TokenStream {
     let vesta_path = vesta_path();
+
+    // Count the number of variants
+    let num_variants = variants.len();
 
     // Construct the `Match` impl
     let mut tag_arms: Vec<Arm> = variants
@@ -224,6 +258,14 @@ fn derive_match_enum(
             }
         }
     };
+
+    // Only if the enum was not declared `#[non_exhaustive]` do we generate this impl
+    if exhaustive {
+        output.extend(quote! {
+            unsafe impl #generics #vesta_path::Exhaustive<#num_variants>
+                for #ident #generics #where_clause {}
+        })
+    }
 
     // Construct each `Case` impl
     let case_impls = variants.into_iter().enumerate().map(

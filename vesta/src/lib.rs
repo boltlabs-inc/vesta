@@ -1,5 +1,5 @@
 use vesta_macro::derive_match;
-pub use vesta_macro::Match;
+pub use vesta_macro::{case, Match};
 
 use std::{
     borrow::Cow,
@@ -13,6 +13,7 @@ use std::{
 #[doc(hidden)]
 pub mod internal {
     pub use super::*;
+    pub use static_assertions::{assert_impl_all, assert_not_impl_any};
 }
 
 /// A type which is [`Match`] can be pattern-matched using Vesta's extensible pattern matching.
@@ -29,6 +30,10 @@ pub unsafe trait Match: Sized {
     /// *guarantee* that it is safe to call [`case`](Case::case) for this value at the type level
     /// tag `N`.
     ///
+    /// If an instance of [`Exhaustive<M>`] exists for this type, whenever [`tag`](Match::tag)
+    /// returns `Some(n)`, `n` must be *strictly less than* `M`. Undefined behavior may result if
+    /// this guarantee is violated.
+    ///
     /// This function should always return the same result, no matter when it is called on `self`,
     /// and no matter how many times. In general, it is impossible to safely implement [`Match`] for
     /// types with interior mutability, unless that interior mutability has no ability to change the
@@ -40,8 +45,37 @@ pub unsafe trait Match: Sized {
     fn tag(&self) -> Option<usize>;
 }
 
-// TODO: use call-by crate to allow matching by ref/mut
-// will need to have a CPS version to allow references?
+/// A type which is [`Exhaustive<N>`](Exhaustive) guarantees that an `N`-ary match statement is
+/// exhaustive.
+///
+/// # Safety
+///
+/// An instance of [`Exhaustive<N>`](Exhaustive) guarantees there is a [`Case<M>`](Case)
+/// implementation for every `M` *strictly less than* `N` and *never* a [`Case<M>`](Case)
+/// implementation for any `M` equal to or greater than `N`. Undefined behavior may result if there
+/// exists a [`Case`] implementation violating this guarantee.
+///
+/// There must be *at most one* instance of [`Exhaustive`] for any given type. Undefined behavior
+/// may result if `T: Exhaustive<N> + Exhaustive<M>` where `N != M`.
+///
+/// This trait implicitly serves as a guarantee on the output range of [`tag`](Match::tag) for the
+/// type. It is undefined behavior if [`tag`](Match::tag) ever returns a value greater than or equal
+/// to `N`.
+pub unsafe trait Exhaustive<const N: usize>: Match {}
+
+pub trait AssertExhaustive<const N: usize>: Match {
+    /// Statically assert that the type is exhaustive for `N`.
+    ///
+    /// This function can only be called if `Self: Exhaustive<N>`. It does nothing when called.
+    #[inline(always)]
+    fn assert_exhaustive(&self)
+    where
+        Self: Exhaustive<N>,
+    {
+    }
+}
+
+impl<T: Match, const N: usize> AssertExhaustive<N> for T {}
 
 /// An implementation of [`Case`] defines a particular case of a pattern match for a type.
 pub trait Case<const N: usize>: Match {
@@ -69,6 +103,7 @@ pub trait Case<const N: usize>: Match {
             Err(self)
         }
     }
+
     /// Inject this case back into the matched type.
     ///
     /// This operation must not panic or otherwise fail.
@@ -114,6 +149,7 @@ derive_match! {
 }
 
 derive_match! {
+    #[non_exhaustive]
     pub enum ErrorKind {
         NotFound,
         PermissionDenied,
