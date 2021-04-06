@@ -109,6 +109,17 @@ pub trait Case<const N: usize>: Match {
     fn uncase(case: Self::Case) -> Self;
 }
 
+fn foo() {
+    case!(None::<bool> {
+        0(_) => todo!(),
+        0(()) => todo!(),
+        _ => todo!(),
+        1(true) => todo!(),
+        1 => todo!(),
+        // _ => todo!(),
+    })
+}
+
 // Implementations on foreign types:
 
 derive_match! {
