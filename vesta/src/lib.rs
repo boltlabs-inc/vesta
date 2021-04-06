@@ -1,6 +1,3 @@
-use vesta_macro::derive_match;
-pub use vesta_macro::{case, Match};
-
 use std::{
     borrow::Cow,
     env::VarError,
@@ -8,10 +5,70 @@ use std::{
     io::{ErrorKind, SeekFrom},
 };
 
+use vesta_macro::derive_match;
+
+/// Derive correct and efficient instances of [`Match`] and [`Case`] for a given `struct` or `enum`.
+///
+/// # Examples
+///
+/// ```
+/// use vesta::{Match, case};
+///
+/// #[derive(Match)]
+/// enum T<'a, P> {
+///     A,
+///     B(i64),
+///     C { field: P },
+///     D(&'a str, bool),
+/// }
+///
+/// fn check<'a>(t: T<'a, usize>) -> bool {
+///     case!(t {
+///         0 => true,
+///         1(0) => true,
+///         1(n) => n != 0,
+///         2(u) if u == 6 => u % 2 == 0,
+///         2 => true,
+///         3(s, true) => s.chars().count() % 2 == 0,
+///         3(s, _) => true,
+///     })
+/// }
+///
+/// use T::*;
+///
+/// assert!(check(A));
+/// assert!(check(B(0)));
+/// assert!(check(B(1)));
+/// assert!(check(C { field: 0 }));
+/// assert!(check(C { field: 6 }));
+/// assert!(check(D("hello", false)));
+/// assert!(check(D("world!", true)));
+/// ```
+pub use vesta_macro::Match;
+
+/// Match on the [`Case`](Case::Case)s of a value implementing [`Match`].
+///
+/// This macro is the safe and efficient way to match on something; it is faster than using chains
+/// of [`try_case`](Case::try_case), but safe because it ensures exhaustiveness when required.
+///
+/// # Examples
+///
+/// ```
+/// use vesta::case;
+///
+/// let option: Option<&str> = Some("thing");
+///
+/// case!(option {
+///     0 => assert!(false),
+///     1(s) => assert_eq!(s, "thing"),
+/// });
+/// ```
+pub use vesta_macro::case;
+
 /// This module is exported so that the `derive_match!` macro can make reference to `vesta` itself
 /// from within the crate.
 #[doc(hidden)]
-pub mod internal {
+pub mod vesta {
     pub use super::*;
 }
 
@@ -20,12 +77,12 @@ pub mod internal {
 /// In order for a type to be matched, it must implement [`Match`], as well as [`Case`] for each
 /// distinct case it can be matched against.
 pub unsafe trait Match: Sized {
-    /// The range of [`tag`](Match::tag) for this type: either [`Unbounded`], or
-    /// [`Bounded<N>`](Bounded) for some `N`.
+    /// The range of [`tag`](Match::tag) for this type: either [`Nonexhaustive`], or
+    /// [`Exhaustive<N>`](Exhaustive) for some `N`.
     ///
     /// # Safety
     ///
-    /// If the [`Range`](Match::Range) is [`Bounded<N>`](Bounded), then [`tag`](Match::tag) must
+    /// If the [`Range`](Match::Range) is [`Exhaustive<N>`](Exhaustive), then [`tag`](Match::tag) must
     /// *never* return `None`. For all `Some(m)` it returns, `m` must be *strictly less than* `N`.
     /// Undefined behavior may result if this guarantee is violated.
     type Range: sealed::Range;
@@ -38,13 +95,13 @@ pub unsafe trait Match: Sized {
     /// [`case`](Case::case) for this value at the type level tag `N = n`. It is undefined behavior
     /// for this function to return `Some(n)` if `<Self as Case<N>>::case(self)` would be unsafe.
     ///
-    /// If the [`Range`](Match::Range) is [`Bounded<N>`](Bounded), then this function must *never*
+    /// If the [`Range`](Match::Range) is [`Exhaustive<N>`](Exhaustive), then this function must *never*
     /// return `None`. For all `Some(m)` it returns, `m` must be *strictly less than* `N`. Undefined
     /// behavior may result if this guarantee is violated.
     ///
-    /// Only if the [`Range`](Match::Range) is [`Unbounded`] is it safe for this function to return
-    /// `None`. Returning `None` will cause all pattern matches on this value to take the default
-    /// case.
+    /// Only if the [`Range`](Match::Range) is [`Nonexhaustive`] is it safe for this function to
+    /// return `None`. Returning `None` will cause all pattern matches on this value to take the
+    /// default case.
     ///
     /// This function should always return the same result. In general, it is impossible to safely
     /// implement [`Match`] for types with interior mutability, unless that interior mutability has
@@ -52,38 +109,41 @@ pub unsafe trait Match: Sized {
     /// `self.tag()` is checked and `self.case()` subsequently called (if applicable) in a single
     /// atomic action, which may lead to undefined behavior if the tag changes between these two
     /// moments.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vesta::Match;
+    ///
+    /// assert_eq!(Some(0), None::<bool>.tag());
+    /// assert_eq!(Some(1), Some(true).tag());
+    /// ```
     fn tag(&self) -> Option<usize>;
 }
 
-/// A marker type indicating that the [`tag`](Match::tag) for some type will never exceed `N`.
+/// Statically assert that the type is exhaustive for `N`.
+///
+/// This function can only be called if `Self: Match<Range = Exhaustive<N>>`. It does nothing
+/// when called.
+#[doc(hidden)]
+#[inline(always)]
+pub fn assert_exhaustive<T, const N: usize>(_: &T)
+where
+    T: Match<Range = Exhaustive<N>>,
+{
+}
+
+/// A marker type indicating that the [`tag`](Match::tag) for some type will always be *strictly
+/// less than* `N`.
 ///
 /// Use this to mark the [`Range`](Match::Range) of exhaustive enumerations.
-pub enum Bounded<const N: usize> {}
+pub enum Exhaustive<const N: usize> {}
 
 /// A marker type indicating that the [`tag`](Match::tag) for some type is not fixed to some known
 /// upper bound.
 ///
 /// Use this to mark the [`Range`](Match::Range) of non-exhaustive enumerations.
-pub enum Unbounded {}
-
-/// A type which is [`Exhaustive<N>`](Exhaustive) guarantees that an `N`-ary match statement is
-/// exhaustive.
-///
-/// This trait is implemented for all type `T: Match<Range = Bounded<N>>`; you cannot extend it
-/// yourself.
-pub trait Exhaustive<const N: usize>: Match {
-    /// Statically assert that the type is exhaustive for `N`.
-    ///
-    /// This function can only be called if `Self: Exhaustive<N>`. It does nothing when called.
-    #[inline(always)]
-    fn assert_exhaustive(&self)
-    where
-        Self: Exhaustive<N>,
-    {
-    }
-}
-
-impl<T, const N: usize> Exhaustive<N> for T where T: Match<Range = Bounded<N>> {}
+pub enum Nonexhaustive {}
 
 /// An implementation of [`Case`] defines a particular case of a pattern match for a type.
 pub trait Case<const N: usize>: Match {
@@ -122,15 +182,8 @@ pub trait Case<const N: usize>: Match {
 
 mod sealed {
     pub trait Range {}
-    impl<const N: usize> Range for super::Bounded<N> {}
-    impl Range for super::Unbounded {}
-}
-
-fn foo() {
-    case!(None::<u64> {
-        0 => todo!(),
-        1 => todo!(),
-    })
+    impl<const N: usize> Range for super::Exhaustive<N> {}
+    impl Range for super::Nonexhaustive {}
 }
 
 // Implementations on foreign types:

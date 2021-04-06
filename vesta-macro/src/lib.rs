@@ -21,16 +21,16 @@ pub fn case(input: TokenStream) -> TokenStream {
     }
 }
 
-#[proc_macro]
-pub fn derive_match(input: TokenStream) -> TokenStream {
-    derive_match_impl(input)
-}
-
 /// Derive `Match`, `Case`, and `Exhaustive` for a "foreign" struct or enum, given its declaration.
 ///
 /// This is only useful within the `vesta` crate itself, because otherwise it will generate an
 /// orphan impl. We use this as shorthand to declare a large set of instances to cover most of the
 /// standard library.
+#[proc_macro]
+pub fn derive_match(input: TokenStream) -> TokenStream {
+    derive_match_impl(input)
+}
+
 #[proc_macro_derive(Match)]
 pub fn derive_match_derive(input: TokenStream) -> TokenStream {
     derive_match_impl(input)
@@ -254,9 +254,9 @@ fn derive_match_enum(
 
     // Range of the instance
     let range = if exhaustive {
-        quote!(#vesta_path::Bounded<#num_variants>)
+        quote!(#vesta_path::Exhaustive<#num_variants>)
     } else {
-        quote!(#vesta_path::Unbounded)
+        quote!(#vesta_path::Nonexhaustive)
     };
 
     let mut output = quote! {
@@ -308,7 +308,7 @@ fn derive_match_enum(
 fn vesta_path() -> Path {
     match proc_macro_crate::crate_name("vesta") {
         Ok(FoundCrate::Itself) if env::var("CARGO_CRATE_NAME").as_deref() == Ok("vesta") => {
-            parse_quote!(crate::internal)
+            parse_quote!(crate::vesta)
         }
         Ok(FoundCrate::Itself) | Err(_) => parse_quote!(::vesta),
         Ok(FoundCrate::Name(name)) => {

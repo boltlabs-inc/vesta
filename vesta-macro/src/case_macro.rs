@@ -9,7 +9,7 @@ use syn::{
     parse_quote,
     spanned::Spanned,
     token::Paren,
-    Arm, Error, Expr, Ident, LitInt, Pat, Token,
+    Arm, Error, Expr, Ident, LitInt, Token,
 };
 
 pub(crate) struct CaseInput {
@@ -48,14 +48,17 @@ impl Parse for CaseArm {
             arm = input.parse()?;
         } else if input.peek2(Paren) {
             // If of the form `N(...) => ...`, we *consume* the `N` token, then parse an `Arm` with
-            // the given pattern (after verifying that the thing *inside* the parentheses is a
-            // pattern, so as to make sure you can't omit parentheses)
+            // the given pattern (after verifying that the thing *inside* the parentheses is
+            // non-empty, so as to make sure you can't write `N()`: you have to do either `N(())` or
+            // `N` alone)
             let lit = input.parse::<LitInt>()?;
             tag = Some(lit.base10_parse::<usize>()?);
             tag_span = lit.span();
             let pat;
             parenthesized!(pat in input.fork());
-            pat.parse::<Pat>()?;
+            if pat.is_empty() {
+                return Err(pat.error("expected pattern"));
+            }
             arm = input.parse::<Arm>()?;
         } else {
             // If of the form `N => ...`, we parse the `N` token but do *not* consume it, then parse
@@ -234,7 +237,10 @@ impl ToTokens for CaseOutput {
         // Generate the fall-through case
         if let Some(num_cases) = exhaustive_cases {
             arms.extend(quote! {
-                _ => #vesta_path::Exhaustive::<#num_cases>::assert_exhaustive(&#value_ident)
+                _ => {
+                    #vesta_path::assert_exhaustive::<_, #num_cases>(&#value_ident);
+                    unsafe { ::std::hint::unreachable_unchecked() }
+                }
             })
         }
 
