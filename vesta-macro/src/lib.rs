@@ -190,12 +190,12 @@ fn derive_match_struct(
         let where_clause = &generics.where_clause;
         TokenStream::from(quote! {
             unsafe impl #generics #vesta_path::Match for #ident #generics #where_clause {
+                type Range = #vesta_path::Bounded<1>;
+
                 fn tag(&self) -> ::std::option::Option<::std::primitive::usize> {
                     ::std::option::Option::Some(0)
                 }
             }
-
-            unsafe impl #generics #vesta_path::Exhaustive<1> for #ident #generics #where_clause {}
 
             #case_impl
         })
@@ -251,21 +251,23 @@ fn derive_match_enum(
         arms: tag_arms,
     };
     let where_clause = &generics.where_clause;
+
+    // Range of the instance
+    let range = if exhaustive {
+        quote!(#vesta_path::Bounded<#num_variants>)
+    } else {
+        quote!(#vesta_path::Unbounded)
+    };
+
     let mut output = quote! {
         unsafe impl #generics #vesta_path::Match for #ident #generics #where_clause {
+            type Range = #range;
+
             fn tag(&self) -> ::std::option::Option<::std::primitive::usize> {
                 #tag_match
             }
         }
     };
-
-    // Only if the enum was not declared `#[non_exhaustive]` do we generate this impl
-    if exhaustive {
-        output.extend(quote! {
-            unsafe impl #generics #vesta_path::Exhaustive<#num_variants>
-                for #ident #generics #where_clause {}
-        })
-    }
 
     // Construct each `Case` impl
     let case_impls = variants.into_iter().enumerate().map(

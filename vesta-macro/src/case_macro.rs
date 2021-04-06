@@ -142,7 +142,7 @@ impl CaseInput {
                         patterns.push_str(", ");
                     }
                 }
-                patterns.push_str(&format!("`{} = _`", tag));
+                patterns.push_str(&format!("`{}(_)`", tag));
                 previous = true;
             }
             let message = format!("non-exhaustive patterns: {} not covered", patterns);
@@ -234,10 +234,7 @@ impl ToTokens for CaseOutput {
         // Generate the fall-through case
         if let Some(num_cases) = exhaustive_cases {
             arms.extend(quote! {
-                _ => {
-                    #vesta_path::AssertExhaustive::<#num_cases>::assert_exhaustive(&#value_ident);
-                    unsafe { ::std::hint::unreachable_unchecked() }
-                }
+                _ => #vesta_path::Exhaustive::<#num_cases>::assert_exhaustive(&#value_ident)
             })
         }
 
