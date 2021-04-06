@@ -125,7 +125,6 @@ pub unsafe trait Match: Sized {
 ///
 /// This function can only be called if `Self: Match<Range = Exhaustive<N>>`. It does nothing
 /// when called.
-#[doc(hidden)]
 #[inline(always)]
 pub fn assert_exhaustive<T, const N: usize>(_: &T)
 where
