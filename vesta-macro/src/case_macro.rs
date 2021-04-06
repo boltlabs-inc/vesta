@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 use itertools::Itertools;
 use proc_macro2::Span;
 use quote::{quote, quote_spanned, ToTokens};
