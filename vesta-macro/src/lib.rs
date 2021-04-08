@@ -122,7 +122,7 @@ fn case_impl(
                     if let #constructor(#names) = self {
                         (#names)
                     } else {
-                        ::std::hint::unreachable_unchecked()
+                        #vesta_path::unreachable()
                     }
                 }),
                 quote!({
@@ -144,7 +144,7 @@ fn case_impl(
                 if let #constructor { #field_names } = self {
                     (#field_names)
                 } else {
-                    ::std::hint::unreachable_unchecked()
+                    #vesta_path::unreachable()
                 }
             }),
             quote!({

@@ -132,6 +132,27 @@ where
 {
 }
 
+/// Mark an unreachable location in generated code.
+///
+/// # Panics
+///
+/// In debug mode, panics immediately when this function is called.
+///
+/// # Safety
+///
+/// In release mode, undefined behavior may occur if this function is ever called.
+#[doc(hidden)]
+pub unsafe fn unreachable<T>() -> T {
+    #[cfg(release)]
+    {
+        std::hint::unreachable_unchecked()
+    }
+    #[cfg(not(release))]
+    {
+        unreachable!("invariant violation in `vesta::Match` or `vesta::Case` implementation")
+    }
+}
+
 /// A marker type indicating that the [`tag`](Match::tag) for some type will always be *strictly
 /// less than* `N`.
 ///

@@ -6,14 +6,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use syn::{
     braced, parenthesized,
     parse::{Parse, ParseStream},
-    parse_quote,
     spanned::Spanned,
-    token::Paren,
-    Arm, Error, Expr, Ident, LitInt, Token,
+    token::{Brace, Paren, Underscore},
+    Arm, Error, Expr, Ident, LitInt, Pat, PatWild, Token,
 };
 
 pub(crate) struct CaseInput {
     scrutinee: Expr,
+    brace_token: Brace,
     arms: Vec<CaseArm>,
 }
 
@@ -21,12 +21,16 @@ impl Parse for CaseInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let scrutinee = Expr::parse_without_eager_brace(input)?;
         let content;
-        let _brace_token = braced!(content in input);
+        let brace_token = braced!(content in input);
         let mut arms = Vec::new();
         while !content.is_empty() {
             arms.push(content.call(CaseArm::parse)?);
         }
-        Ok(CaseInput { scrutinee, arms })
+        Ok(CaseInput {
+            scrutinee,
+            arms,
+            brace_token,
+        })
     }
 }
 
@@ -69,7 +73,12 @@ impl Parse for CaseArm {
             tag = Some(lit.base10_parse::<usize>()?);
             tag_span = lit.span();
             arm = input.parse::<Arm>()?;
-            arm.pat = parse_quote!(_);
+            // Explicitly construct a `_` pattern with the right span, so unreachable pattern
+            // warnings get displayed nicely
+            arm.pat = Pat::Wild(PatWild {
+                attrs: vec![],
+                underscore_token: Underscore { spans: [tag_span] },
+            });
         };
         Ok(CaseArm { tag, tag_span, arm })
     }
@@ -78,34 +87,36 @@ impl Parse for CaseArm {
 impl CaseInput {
     pub fn compile(self) -> Result<CaseOutput, Error> {
         let CaseInput {
-            scrutinee, arms, ..
+            scrutinee,
+            arms,
+            brace_token,
         } = self;
 
-        let mut cases: Vec<BTreeMap<Option<usize>, Vec<(Span, Arm)>>> = Vec::new();
+        let mut cases: BTreeMap<usize, Vec<(Span, Arm)>> = BTreeMap::new();
+        let mut default: Option<(Span, Arm)> = None;
+        let mut unreachable: Vec<CaseArm> = Vec::new();
         let mut all_tags = BTreeSet::new();
-        let mut has_default = false;
 
-        for (_, group) in arms.into_iter().group_by(|c| c.tag.is_some()).into_iter() {
-            let mut grouped_arms = BTreeMap::new();
-            for case_arm in group {
-                match case_arm.tag {
-                    Some(tag) => {
-                        all_tags.insert(tag);
-                    }
-                    None => has_default = true,
+        for case_arm in arms {
+            if default.is_none() {
+                if let Some(tag) = case_arm.tag {
+                    all_tags.insert(tag);
+                    cases
+                        .entry(tag)
+                        .or_insert_with(Vec::new)
+                        .push((case_arm.tag_span, case_arm.arm));
+                } else {
+                    default = Some((case_arm.tag_span, case_arm.arm));
                 }
-                grouped_arms
-                    .entry(case_arm.tag)
-                    .or_insert_with(Vec::new)
-                    .push((case_arm.tag_span, case_arm.arm));
+            } else {
+                unreachable.push(case_arm);
             }
-            cases.push(grouped_arms);
         }
 
         // Compute the missing cases, if any were skipped when there was not a default
         let max_tag: Option<usize> = all_tags.iter().rev().next().cloned();
         let missing_cases = if let Some(max_tag) = max_tag {
-            if !has_default {
+            if default.is_none() {
                 (0..=max_tag)
                     .filter(|tag| !all_tags.contains(tag))
                     .collect()
@@ -116,18 +127,13 @@ impl CaseInput {
             Vec::new()
         };
 
-        // If the match is supposed to be exhaustive, count the bound on the cases
-        let exhaustive_cases = if has_default {
-            None
-        } else {
-            Some(max_tag.map(|t| t + 1).unwrap_or(0))
-        };
-
         if missing_cases.is_empty() {
             Ok(CaseOutput {
                 scrutinee,
+                brace_token,
                 cases,
-                exhaustive_cases,
+                default,
+                unreachable,
             })
         } else {
             // Construct the list of missing cases as a nice string
@@ -156,8 +162,10 @@ impl CaseInput {
 
 pub(crate) struct CaseOutput {
     scrutinee: Expr,
-    cases: Vec<BTreeMap<Option<usize>, Vec<(Span, Arm)>>>,
-    exhaustive_cases: Option<usize>,
+    brace_token: Brace,
+    cases: BTreeMap<usize, Vec<(Span, Arm)>>,
+    default: Option<(Span, Arm)>,
+    unreachable: Vec<CaseArm>,
 }
 
 impl ToTokens for CaseOutput {
@@ -170,85 +178,106 @@ impl ToTokens for CaseOutput {
 
         let CaseOutput {
             scrutinee,
+            brace_token,
             cases,
-            exhaustive_cases,
+            default,
+            unreachable,
         } = self;
 
-        // Compute the grouped sets of defaults, one for each case group
-        let mut defaults: BTreeMap<usize, Vec<(&Span, &Arm)>> = cases
+        // Get the span for all the cases
+        let cases_span = brace_token.span;
+
+        // Compute the max tag ever mentioned
+        let mut max_tag = None;
+        cases
+            .keys()
+            .chain(
+                unreachable
+                    .iter()
+                    .filter_map(|case_arm| case_arm.tag.as_ref()),
+            )
+            .for_each(|tag| {
+                max_tag = match max_tag {
+                    None => Some(tag),
+                    Some(max_tag) => Some(max_tag.max(tag)),
+                }
+            });
+
+        // Determine whether all the combined cases should have been exhaustive, and if so, what
+        // their bound should be
+        let exhaustive_cases = if default.is_some() {
+            None
+        } else {
+            Some(max_tag.map(|t| t + 1).unwrap_or(0))
+        };
+
+        // Generate the default arm, if one exists
+        let default_arm: Vec<_> = default
             .iter()
-            .map(|map| {
-                map.iter()
-                    .filter_map(|(tag, arms)| if tag.is_none() { Some(arms) } else { None })
-                    .map(|v| v.iter().map(|(tag_span, arm)| (tag_span, arm)))
-                    .flatten()
-                    .collect()
+            .map(|(_, arm)| {
+                quote! {
+                    #[allow(unreachable_patterns)]
+                    #arm
+                }
             })
-            .enumerate()
             .collect();
 
         // Generate all the outer arms
-        let mut arms: proc_macro2::TokenStream = Default::default();
-        for (group_number, group) in cases.iter().enumerate() {
-            for (tag, inner_cases) in group.iter() {
-                let mut inner_arms: proc_macro2::TokenStream = Default::default();
-                for (_tag_span, case) in inner_cases {
-                    inner_arms.extend(quote!(#case));
-                }
-                if let Some(tag) = tag {
-                    // Make a list of all the default arms that exist *syntactically below* this
-                    // point in the input, and emit them here if so. This means that partial matches
-                    // within a particular tag won't create an error if there is a global default
-                    // arm(s).
-                    let defaults_below_here: Vec<(&Span, &Arm)> =
-                        defaults.values().flatten().copied().collect();
-                    let mut default_arms_below_here: proc_macro2::TokenStream = Default::default();
-                    for (_, arm) in defaults_below_here {
-                        default_arms_below_here.extend(quote! {
-                            #[allow(unreachable_patterns)]
-                            #arm
-                        });
-                    }
-
-                    // Compute a span that's the join of all the spans for each tag
-                    let tag_span = inner_cases
-                        .iter()
-                        .map(|p| p.0)
-                        .fold1(|x, y| x.join(y).unwrap_or(x))
-                        .unwrap_or_else(Span::call_site);
-
-                    arms.extend(quote_spanned!(tag_span=> Some(#tag)));
-                    arms.extend(quote! {
-                        => match unsafe {
-                            #vesta_path::Case::<#tag>::case(#value_ident)
-                        } {
-                            #inner_arms
-                            #default_arms_below_here
-                        }
-                    });
-                } else {
-                    arms.extend(quote!(#inner_arms))
+        let active_arms = cases.iter().map(|(tag, inner_cases)| {
+            let inner_arms = inner_cases.iter().map(|(_, arm)| arm);
+            let tag_span: Span = inner_cases
+                .iter()
+                .map(|(span, _)| span)
+                .cloned()
+                .fold1(|s, t| s.join(t).unwrap_or(s))
+                .unwrap_or_else(Span::call_site);
+            let pat = quote_spanned!(tag_span=> ::std::option::Option::Some(#tag));
+            quote! {
+                #pat => match unsafe {
+                    #vesta_path::Case::<#tag>::case(#value_ident)
+                } {
+                    #(#inner_arms)*
+                    #(#default_arm)*
                 }
             }
-            // Remove the current group number from the defaults
-            defaults.remove(&group_number);
-        }
+        });
 
-        // Generate the fall-through case
-        if let Some(num_cases) = exhaustive_cases {
-            arms.extend(quote! {
+        // Generate the exhaustive fall-through case, if one is necessary
+        let exhaustive_arm = exhaustive_cases.iter().map(|num_cases| {
+            quote! {
                 _ => {
                     #vesta_path::assert_exhaustive::<_, #num_cases>(&#value_ident);
-                    unsafe { ::std::hint::unreachable_unchecked() }
+                    unsafe { #vesta_path::unreachable() }
                 }
-            })
-        }
+            }
+        });
 
-        stream.extend(quote!({
+        // Generate all the unreachable arms, for maximum warning reporting
+        let unreachable_arms = unreachable
+            .iter()
+            .map(|CaseArm { tag, arm, tag_span }| match tag {
+                Some(tag) => quote_spanned! { *tag_span=>
+                    ::std::option::Option::Some(#tag) => match unsafe {
+                        #vesta_path::Case::<#tag>::case(#value_ident)
+                    } {
+                        #arm
+                        _ => unsafe { #vesta_path::unreachable() }
+                    }
+                },
+                None => quote!(#arm),
+            });
+
+        // Glue all the arms together
+        let arms = active_arms
+            .chain(exhaustive_arm.chain(default_arm.iter().cloned().chain(unreachable_arms)));
+
+        stream.extend(quote_spanned!(cases_span=> {
             let #value_ident = #scrutinee;
             let #tag_ident = #vesta_path::Match::tag(&#value_ident);
             #[allow(unused_parens)]
-            match #tag_ident { #arms }
+            match #tag_ident {
+                #(#arms)*
+            }
         }))
     }
 }
