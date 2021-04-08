@@ -49,11 +49,11 @@ use vesta_syntax::{vesta_path, CaseInput};
 /// });
 /// ```
 ///
-/// [`Match`]: https://docs.rs/vesta
+/// [`Match`]: https://docs.rs/vesta/latest/vesta/trait.Match.html
 ///
-/// [`Case`]: https://docs.rs/vesta
+/// [`Case`]: https://docs.rs/vesta/latest/vesta/trait.Case.html
 ///
-/// [`try_case`]: https://docs.rs/vesta
+/// [`try_case`]: https://docs.rs/vesta/latest/vesta/trait.CaseExt.html#method.try_case
 #[proc_macro]
 pub fn case(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as CaseInput);
@@ -110,9 +110,9 @@ pub fn derive_match(input: TokenStream) -> TokenStream {
 /// assert!(check(D("world!", true)));
 /// ```
 ///
-/// [`Match`]: https://docs.rs/vesta
-/// [`Case`]: https://docs.rs/vesta
-/// [`try_case`]: https://docs.rs/vesta
+/// [`Match`]: https://docs.rs/vesta/latest/vesta/trait.Match.html
+///
+/// [`Case`]: https://docs.rs/vesta/latest/vesta/trait.Case.html
 #[proc_macro_derive(Match)]
 pub fn derive_match_derive(input: TokenStream) -> TokenStream {
     derive_match_impl(input)
