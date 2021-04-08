@@ -3,7 +3,7 @@
 //! [![crates.io](https://img.shields.io/crates/v/vesta)](https://crates.io/crates/vesta)
 //! [![docs.rs documentation](https://docs.rs/vesta/badge.svg)](https://docs.rs/vesta)
 //!
-//! > A **_vesta_**, otherwise known as a *match case*, is a small container for matches, named
+//! > A **vesta**, otherwise known as a *match case*, is a small container for matches, named
 //! > after the Roman goddess of the hearth.
 //! >
 //! > **Vesta** is a crate for extensibly *matching cases* in Rust.
