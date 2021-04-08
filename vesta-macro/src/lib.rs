@@ -1,16 +1,14 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-use proc_macro_crate::FoundCrate;
 use quote::{format_ident, quote, ToTokens};
-use std::{env, iter::FromIterator};
+use std::iter::FromIterator;
 use syn::{
     parse_macro_input, parse_quote, punctuated::Punctuated, spanned::Spanned, Arm, Data, DataEnum,
     DataStruct, DeriveInput, Error, Field, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident,
     Item, Path, Token, Type, Variant,
 };
 
-mod case_macro;
-use case_macro::CaseInput;
+use vesta_syntax::{vesta_path, CaseInput};
 
 #[proc_macro]
 pub fn case(input: TokenStream) -> TokenStream {
@@ -299,19 +297,4 @@ fn derive_match_enum(
 
     output.extend(case_impls);
     TokenStream::from(output)
-}
-
-/// Get the absolute path to `vesta`, from within the package itself, the doc tests, or any other
-/// package. This means we can use these proc macros from inside `vesta` with no issue.
-fn vesta_path() -> Path {
-    match proc_macro_crate::crate_name("vesta") {
-        Ok(FoundCrate::Itself) if env::var("CARGO_CRATE_NAME").as_deref() == Ok("vesta") => {
-            parse_quote!(crate::vesta)
-        }
-        Ok(FoundCrate::Itself) | Err(_) => parse_quote!(::vesta),
-        Ok(FoundCrate::Name(name)) => {
-            let name_ident = format_ident!("{}", name);
-            parse_quote!(::#name_ident)
-        }
-    }
 }

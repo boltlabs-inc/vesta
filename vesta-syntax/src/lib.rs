@@ -1,20 +1,44 @@
-#![allow(clippy::type_complexity)]
 use itertools::Itertools;
 use proc_macro2::Span;
-use quote::{quote, quote_spanned, ToTokens};
-use std::collections::{BTreeMap, BTreeSet};
+use proc_macro_crate::FoundCrate;
+use quote::{format_ident, quote, quote_spanned, ToTokens};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env,
+};
 use syn::{
     braced, parenthesized,
     parse::{Parse, ParseStream},
+    parse_quote,
     spanned::Spanned,
     token::{Brace, Paren, Underscore},
-    Arm, Error, Expr, Ident, LitInt, Pat, PatWild, Token,
+    Arm, Error, Expr, Ident, LitInt, Pat, PatWild, Path, Token,
 };
 
-pub(crate) struct CaseInput {
-    scrutinee: Expr,
-    brace_token: Brace,
-    arms: Vec<CaseArm>,
+/// Get the absolute path to `vesta`, from within the package itself, the doc tests, or any other
+/// package. This means we can use these proc macros from inside `vesta` with no issue.
+pub fn vesta_path() -> Path {
+    match proc_macro_crate::crate_name("vesta") {
+        Ok(FoundCrate::Itself) if env::var("CARGO_CRATE_NAME").as_deref() == Ok("vesta") => {
+            parse_quote!(crate::vesta)
+        }
+        Ok(FoundCrate::Itself) | Err(_) => parse_quote!(::vesta),
+        Ok(FoundCrate::Name(name)) => {
+            let name_ident = format_ident!("{}", name);
+            parse_quote!(::#name_ident)
+        }
+    }
+}
+
+/// The input syntax to `vesta`'s `case!` macro. This implements [`Parse`].
+#[derive(Clone)]
+pub struct CaseInput {
+    /// The scrutinee of the `case!` macro: the thing upon which we are matching.
+    pub scrutinee: Expr,
+    /// The brace token wrapping all the cases.
+    pub brace_token: Brace,
+    /// The cases, as input by the user.
+    pub arms: Vec<CaseArm>,
 }
 
 impl Parse for CaseInput {
@@ -34,10 +58,15 @@ impl Parse for CaseInput {
     }
 }
 
-struct CaseArm {
-    tag: Option<usize>,
-    tag_span: Span,
-    arm: Arm,
+/// A single arm of a `case!`, i.e. `1(x, Some(y)) => x + y,`. This implements [`Parse`].
+#[derive(Clone)]
+pub struct CaseArm {
+    /// The tag for this case, or `None` if the case was a catch-all `_` case.
+    pub tag: Option<usize>,
+    /// The span for the tag.
+    pub tag_span: Span,
+    /// The [`Arm`] for the case, i.e. the pattern following the tag, its `=>`, and its body.
+    pub arm: Arm,
 }
 
 impl Parse for CaseArm {
@@ -85,6 +114,8 @@ impl Parse for CaseArm {
 }
 
 impl CaseInput {
+    /// Compile a [`CaseInput`] into a [`CaseOutput`], if it is valid input, or return an [`Error`]
+    /// if it is missing cases.
     pub fn compile(self) -> Result<CaseOutput, Error> {
         let CaseInput {
             scrutinee,
@@ -161,12 +192,20 @@ impl CaseInput {
     }
 }
 
-pub(crate) struct CaseOutput {
-    scrutinee: Expr,
-    brace_token: Brace,
-    cases: BTreeMap<usize, Vec<(Span, Arm)>>,
-    default: Option<(Span, Arm)>,
-    unreachable: Vec<CaseArm>,
+/// The output of `vesta`'s `case!` macro, in a representation suitable for turning back into tokens
+/// via [`ToTokens`].
+pub struct CaseOutput {
+    /// The scrutinee of the `case!`.
+    pub scrutinee: Expr,
+    /// The brace token wrapping the whole of the cases.
+    pub brace_token: Brace,
+    /// The reachable cases, organized by which tag they belong to, ordered within each tag by the
+    /// order they were listed in the original input.
+    pub cases: BTreeMap<usize, Vec<(Span, Arm)>>,
+    /// The default case `_ => ...`, if there was any.
+    pub default: Option<(Span, Arm)>,
+    /// All the unreachable arms, for which we emit code so as to generate warnings.
+    pub unreachable: Vec<CaseArm>,
 }
 
 impl ToTokens for CaseOutput {
