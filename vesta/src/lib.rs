@@ -1,60 +1,26 @@
-/// Derive correct and efficient instances of [`Match`] and [`Case`] for a given `struct` or `enum`.
-///
-/// # Examples
-///
-/// ```
-/// use vesta::{Match, case};
-///
-/// #[derive(Match)]
-/// enum T<'a, P> {
-///     A,
-///     B(i64),
-///     C { field: P },
-///     D(&'a str, bool),
-/// }
-///
-/// fn check<'a>(t: T<'a, usize>) -> bool {
-///     case!(t {
-///         0 => true,
-///         1(0) => true,
-///         1(n) => n != 0,
-///         2(u) if u == 6 => u % 2 == 0,
-///         2 => true,
-///         3(s, true) => s.chars().count() % 2 == 0,
-///         3(s, _) => true,
-///     })
-/// }
-///
-/// use T::*;
-///
-/// assert!(check(A));
-/// assert!(check(B(0)));
-/// assert!(check(B(1)));
-/// assert!(check(C { field: 0 }));
-/// assert!(check(C { field: 6 }));
-/// assert!(check(D("hello", false)));
-/// assert!(check(D("world!", true)));
-/// ```
-pub use vesta_macro::Match;
+//! > A **_vesta_**, otherwise known as a *match case*, is a small container for matches, named
+//! > after the Roman goddess of the hearth.
+//! >
+//! > **Vesta** is a crate for extensibly *matching cases* in Rust.
+//!
+//! By implementing [`Match`](Match@trait) and [`Case`] for some type (or better yet, correctly
+//! deriving them using the [`Match`](Match@macro) derive macro), you can pattern-match on that type
+//! using the [`case!`] macro almost like using the `match` keyword built into Rust.
+//!
+//! However, Vesta's [`case!`] macro is more general than `match`, because [`Match`] and [`Case`]
+//! are traits! This means you can enable pattern-matching for types which are not literally
+//! implemented as `enum`s, and you can write code which is generic over any type that is
+//! pattern-matchable.
 
-/// Match on the [`Case`](Case::Case)s of a value implementing [`Match`].
-///
-/// This macro is the safe and efficient way to match on something; it is faster than using chains
-/// of [`try_case`](Case::try_case), but safe because it ensures exhaustiveness when required.
-///
-/// # Examples
-///
-/// ```
-/// use vesta::case;
-///
-/// let option: Option<&str> = Some("thing");
-///
-/// case!(option {
-///     0 => assert!(false),
-///     1(s) => assert_eq!(s, "thing"),
-/// });
-/// ```
-pub use vesta_macro::case;
+#![warn(missing_docs)]
+#![warn(missing_copy_implementations, missing_debug_implementations)]
+#![warn(unused_qualifications, unused_results)]
+#![warn(future_incompatible)]
+#![warn(unused)]
+// Documentation configuration
+#![forbid(broken_intra_doc_links)]
+
+pub use vesta_macro::{case, Match};
 
 /// This module is exported so that the `derive_match!` macro can make reference to `vesta` itself
 /// from within the crate.
@@ -63,7 +29,8 @@ pub mod vesta {
     pub use super::*;
 }
 
-/// A type which is [`Match`] can be pattern-matched using Vesta's extensible pattern matching.
+/// A type which is [`Match`] can be pattern-matched using the [`case!`] macro and the methods of
+/// [`CaseExt`]/[`Case`].
 ///
 /// In order for a type to be matched, it must implement [`Match`], as well as [`Case`] for each
 /// distinct case it can be matched against.
@@ -71,11 +38,14 @@ pub unsafe trait Match: Sized {
     /// The range of [`tag`](Match::tag) for this type: either [`Nonexhaustive`], or
     /// [`Exhaustive<N>`](Exhaustive) for some `N`.
     ///
+    /// No other types are permissible for this associated type; it is constrained by the sealed
+    /// `Range` trait, which is only implemented for these two options.
+    ///
     /// # Safety
     ///
-    /// If the [`Range`](Match::Range) is [`Exhaustive<N>`](Exhaustive), then [`tag`](Match::tag) must
-    /// *never* return `None`. For all `Some(m)` it returns, `m` must be *strictly less than* `N`.
-    /// Undefined behavior may result if this guarantee is violated.
+    /// If the [`Range`](Match::Range) is [`Exhaustive<N>`](Exhaustive), then [`tag`](Match::tag)
+    /// must *never* return `None`. For all `Some(m)` it returns, `m` must be *strictly less than*
+    /// `N`. Undefined behavior may result if this guarantee is violated.
     type Range: sealed::Range;
 
     /// The tag of this value.
@@ -86,9 +56,9 @@ pub unsafe trait Match: Sized {
     /// [`case`](Case::case) for this value at the type level tag `N = n`. It is undefined behavior
     /// for this function to return `Some(n)` if `<Self as Case<N>>::case(self)` would be unsafe.
     ///
-    /// If the [`Range`](Match::Range) is [`Exhaustive<N>`](Exhaustive), then this function must *never*
-    /// return `None`. For all `Some(m)` it returns, `m` must be *strictly less than* `N`. Undefined
-    /// behavior may result if this guarantee is violated.
+    /// If the [`Range`](Match::Range) is [`Exhaustive<N>`](Exhaustive), then this function must
+    /// *never* return `None`. For all `Some(m)` it returns, `m` must be *strictly less than* `N`.
+    /// Undefined behavior may result if this guarantee is violated.
     ///
     /// Only if the [`Range`](Match::Range) is [`Nonexhaustive`] is it safe for this function to
     /// return `None`. Returning `None` will cause all pattern matches on this value to take the
@@ -112,10 +82,85 @@ pub unsafe trait Match: Sized {
     fn tag(&self) -> Option<usize>;
 }
 
-/// Statically assert that the type is exhaustive for `N`.
+/// An extension trait providing methods analogous to those in [`Case`], but which take `self` and
+/// type parameters.<br>💡 Prefer using these to directly calling the methods in [`Case`].
+pub trait CaseExt: Sized {
+    /// If the value's [`tag`](Match::tag) is `N`, return that case.
+    ///
+    /// # Safety
+    ///
+    /// It is undefined behavior to call this function when [`self.tag()`](Match::tag) would return
+    /// anything other than `Some(n)`, where `n = N`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vesta::{Match, CaseExt};
+    ///
+    /// let option = Some("hello");
+    /// assert_eq!(option.tag(), Some(1));
+    /// let string = unsafe { option.case::<1>() };
+    /// assert_eq!(string, "hello");
+    /// ```
+    #[inline(always)]
+    unsafe fn case<const N: usize>(self) -> Self::Case
+    where
+        Self: Case<N>,
+    {
+        Case::case(self)
+    }
+
+    /// If the value's [`tag`](Match::tag) is `N`, return that case; otherwise, return `self`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vesta::CaseExt;
+    ///
+    /// let result = Some("hello").try_case::<1>();
+    /// assert_eq!(result, Ok("hello"));
+    /// ```
+    #[inline(always)]
+    fn try_case<const N: usize>(self) -> Result<Self::Case, Self>
+    where
+        Self: Case<N>,
+    {
+        Case::try_case(self)
+    }
+
+    /// The inverse of [`case`](CaseExt::case): inject this case back into the matched type.
+    ///
+    /// This operation must not panic or otherwise fail.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vesta::CaseExt;
+    ///
+    /// let option: Option<_> = "hello".uncase::<_, 1>();
+    /// assert_eq!(option, Some("hello"));
+    /// ```
+    #[inline(always)]
+    fn uncase<T, const N: usize>(self) -> T
+    where
+        T: Case<N, Case = Self>,
+    {
+        Case::uncase(self)
+    }
+}
+
+impl<T: Sized> CaseExt for T {}
+
+/// Statically assert that the type of the given value is exhaustive for `N`.
 ///
 /// This function can only be called if `Self: Match<Range = Exhaustive<N>>`. It does nothing
 /// when called.
+///
+/// # Examples
+///
+/// ```
+/// vesta::assert_exhaustive::<_, 2>(&Some(true));
+/// ```
 #[inline(always)]
 pub fn assert_exhaustive<T, const N: usize>(_: &T)
 where
@@ -133,6 +178,7 @@ where
 ///
 /// In release mode, undefined behavior may occur if this function is ever called.
 #[doc(hidden)]
+#[inline(always)]
 pub unsafe fn unreachable<T>() -> T {
     #[cfg(release)]
     {
@@ -148,15 +194,18 @@ pub unsafe fn unreachable<T>() -> T {
 /// less than* `N`.
 ///
 /// Use this to mark the [`Range`](Match::Range) of exhaustive enumerations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Exhaustive<const N: usize> {}
 
 /// A marker type indicating that the [`tag`](Match::tag) for some type is not fixed to some known
 /// upper bound.
 ///
 /// Use this to mark the [`Range`](Match::Range) of non-exhaustive enumerations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Nonexhaustive {}
 
-/// An implementation of [`Case`] defines a particular case of a pattern match for a type.
+/// An implementation of [`Case`] defines a particular case of a pattern match for a type.<br> ℹ️
+/// Prefer using the methods of [`CaseExt`] to directly calling these methods.
 pub trait Case<const N: usize>: Match {
     /// The type of the data contained in the `N`th case of the matched type.
     type Case;
@@ -167,27 +216,56 @@ pub trait Case<const N: usize>: Match {
     ///
     /// It is undefined behavior to call this function when [`self.tag()`](Match::tag) would return
     /// anything other than `Some(n)`, where `n = N`.
-    unsafe fn case(self) -> Self::Case;
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vesta::{Match, Case};
+    ///
+    /// let option = Some("hello");
+    /// assert_eq!(option.tag(), Some(1));
+    /// let string = unsafe { <_ as Case<1>>::case(option) };
+    /// assert_eq!(string, "hello");
+    /// ```
+    unsafe fn case(this: Self) -> Self::Case;
 
     /// If the value's [`tag`](Match::tag) is `N`, return that case; otherwise, return `self`.
     ///
     /// In its default implementation, this method checks that `self.tag() == N` and then calls
-    /// [`self.case()`](Case::case) only if so.
+    /// [`case`](Case::case) only if so.
     ///
     /// In the case where this method can be more efficiently implemented than the composition of
-    /// `self.tag()` with `self.case()`, this method can be overloaded.
-    fn try_case(self) -> Result<Self::Case, Self> {
-        if self.tag() == Some(N) {
+    /// [`tag`](Match::tag) with [`case`](Case::case), this method can be overloaded.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vesta::Case;
+    ///
+    /// let result = <_ as Case<1>>::try_case(Some("hello"));
+    /// assert_eq!(result, Ok("hello"));
+    /// ```
+    fn try_case(this: Self) -> Result<Self::Case, Self> {
+        if this.tag() == Some(N) {
             // It is safe to call `self.case()` because we have checked the tag
-            Ok(unsafe { self.case() })
+            Ok(unsafe { Case::case(this) })
         } else {
-            Err(self)
+            Err(this)
         }
     }
 
     /// The inverse of [`case`](Case::case): inject this case back into the matched type.
     ///
     /// This operation must not panic or otherwise fail.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vesta::Case;
+    ///
+    /// let option: Option<_> = <_ as Case<1>>::uncase("hello");
+    /// assert_eq!(option, Some("hello"));
+    /// ```
     fn uncase(case: Self::Case) -> Self;
 }
 
