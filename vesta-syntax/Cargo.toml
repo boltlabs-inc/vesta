@@ -4,6 +4,11 @@ version = "0.1.0"
 authors = ["Kenny Foner <kwf@very.science>"]
 edition = "2018"
 license = "MIT"
+description = "The syntax for the `case!` macro defined in the Vesta crate"
+repository = "https://github.com/boltlabs-inc/vesta"
+homepage = "https://github.com/boltlabs-inc/vesta"
+keywords = ["pattern", "match", "case", "matching", "macro"]
+categories = ["rust-patterns"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

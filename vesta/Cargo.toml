@@ -5,6 +5,11 @@ authors = ["Kenny Foner <kwf@very.science>"]
 edition = "2018"
 license = "MIT"
 readme = "../README.md"
+description = "Extensible pattern matching"
+repository = "https://github.com/boltlabs-inc/vesta"
+homepage = "https://github.com/boltlabs-inc/vesta"
+keywords = ["pattern", "match", "case", "matching", "macro"]
+categories = ["rust-patterns"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
