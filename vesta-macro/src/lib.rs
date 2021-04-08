@@ -4,9 +4,9 @@ use proc_macro_crate::FoundCrate;
 use quote::{format_ident, quote, ToTokens};
 use std::{env, iter::FromIterator};
 use syn::{
-    parse_macro_input, parse_quote, punctuated::Punctuated, spanned::Spanned, token::Brace, Arm,
-    Data, DataEnum, DataStruct, DeriveInput, Error, ExprMatch, Field, Fields, FieldsNamed,
-    FieldsUnnamed, Generics, Ident, Item, Path, Token, Type, Variant,
+    parse_macro_input, parse_quote, punctuated::Punctuated, spanned::Spanned, Arm, Data, DataEnum,
+    DataStruct, DeriveInput, Error, Field, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident,
+    Item, Path, Token, Type, Variant,
 };
 
 mod case_macro;
@@ -238,19 +238,13 @@ fn derive_match_enum(
             )| parse_quote!(#ident::#constructor { .. } => ::std::option::Option::Some(#i)),
         )
         .collect();
-    tag_arms.push(parse_quote! {
-        _ => ::std::option::Option::None
-    });
-    let tag_match = ExprMatch {
-        attrs: vec![],
-        match_token: parse_quote!(match),
-        expr: parse_quote!(self),
-        brace_token: Brace {
-            span: Span::call_site(),
-        },
-        arms: tag_arms,
-    };
-    let where_clause = &generics.where_clause;
+
+    // Only if non-exhaustive, push this fall-through arm
+    if !exhaustive {
+        tag_arms.push(parse_quote! {
+            _ => ::std::option::Option::None
+        });
+    }
 
     // Range of the instance
     let range = if exhaustive {
@@ -259,12 +253,16 @@ fn derive_match_enum(
         quote!(#vesta_path::Nonexhaustive)
     };
 
+    // Output stream starts with the `Match` impl
+    let where_clause = &generics.where_clause;
     let mut output = quote! {
         unsafe impl #generics #vesta_path::Match for #ident #generics #where_clause {
             type Range = #range;
 
             fn tag(&self) -> ::std::option::Option<::std::primitive::usize> {
-                #tag_match
+                match *self {
+                    #(#tag_arms),*
+                }
             }
         }
     };
