@@ -275,7 +275,7 @@ fn derive_match_struct(
         TokenStream::from(quote! {
             #[allow(unused_qualifications)]
             unsafe impl #generics #vesta_path::Match for #ident #generics #where_clause {
-                type Range = #vesta_path::Bounded<1>;
+                type Range = #vesta_path::Exhaustive<1>;
 
                 fn tag(&self) -> ::std::option::Option<::std::primitive::usize> {
                     ::std::option::Option::Some(0)
