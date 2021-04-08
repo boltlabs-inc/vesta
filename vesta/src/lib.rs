@@ -1,12 +1,3 @@
-use std::{
-    borrow::Cow,
-    env::VarError,
-    ffi::OsString,
-    io::{ErrorKind, SeekFrom},
-};
-
-use vesta_macro::derive_match;
-
 /// Derive correct and efficient instances of [`Match`] and [`Case`] for a given `struct` or `enum`.
 ///
 /// # Examples
@@ -145,11 +136,11 @@ where
 pub unsafe fn unreachable<T>() -> T {
     #[cfg(release)]
     {
-        std::hint::unreachable_unchecked()
+        core::hint::unreachable_unchecked()
     }
     #[cfg(not(release))]
     {
-        unreachable!("invariant violation in `vesta::Match` or `vesta::Case` implementation")
+        core::unreachable!("invariant violation in `vesta::Match` or `vesta::Case` implementation")
     }
 }
 
@@ -206,64 +197,4 @@ mod sealed {
     impl Range for super::Nonexhaustive {}
 }
 
-// Implementations on foreign types:
-
-derive_match! {
-    enum Option<T> {
-        None,
-        Some(T),
-    }
-}
-
-derive_match! {
-    enum Result<T, E> {
-        Ok(T),
-        Err(E),
-    }
-}
-
-derive_match! {
-    enum Cow<'a, B> where B: 'a + ToOwned + ?Sized {
-        Borrowed(&'a B),
-        Owned(<B as ToOwned>::Owned),
-    }
-}
-
-derive_match! {
-    pub enum VarError {
-        NotPresent,
-        NotUnicode(OsString),
-    }
-}
-
-derive_match! {
-    pub enum SeekFrom {
-        Start(u64),
-        End(i64),
-        Current(i64),
-    }
-}
-
-derive_match! {
-    #[non_exhaustive]
-    pub enum ErrorKind {
-        NotFound,
-        PermissionDenied,
-        ConnectionRefused,
-        ConnectionReset,
-        ConnectionAborted,
-        NotConnected,
-        AddrInUse,
-        AddrNotAvailable,
-        BrokenPipe,
-        AlreadyExists,
-        WouldBlock,
-        InvalidInput,
-        InvalidData,
-        TimedOut,
-        WriteZero,
-        Interrupted,
-        Other,
-        UnexpectedEof,
-    }
-}
+mod impls;

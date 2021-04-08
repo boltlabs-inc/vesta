@@ -97,6 +97,7 @@ impl CaseInput {
         let mut unreachable: Vec<CaseArm> = Vec::new();
         let mut all_tags = BTreeSet::new();
 
+        // Read each case arm into the appropriate location
         for case_arm in arms {
             if default.is_none() {
                 if let Some(tag) = case_arm.tag {
@@ -151,7 +152,7 @@ impl CaseInput {
                         patterns.push_str(", ");
                     }
                 }
-                patterns.push_str(&format!("`{}(_)`", tag));
+                patterns.push_str(&format!("`{}`", tag));
                 previous = true;
             }
             let message = format!("non-exhaustive patterns: {} not covered", patterns);
