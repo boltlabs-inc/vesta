@@ -203,6 +203,7 @@ impl CaseInput {
 
 /// The output of `vesta`'s `case!` macro, in a representation suitable for turning back into tokens
 /// via [`ToTokens`].
+#[derive(Clone)]
 pub struct CaseOutput {
     /// The scrutinee of the `case!`.
     pub scrutinee: Expr,
@@ -260,20 +261,11 @@ impl ToTokens for CaseOutput {
             Some(max_tag.map(|t| t + 1).unwrap_or(0))
         };
 
-        // Generate the default arm, if one exists
-        let default_arm: Vec<_> = default
-            .iter()
-            .map(|(_, arm)| {
-                quote! {
-                    #[allow(unreachable_patterns)]
-                    #arm
-                }
-            })
-            .collect();
-
-        // Generate all the outer arms
+        // Generate all the reachable outer arms
         let active_arms = cases.iter().map(|(tag, inner_cases)| {
             let inner_arms = inner_cases.iter().map(|(_, arm)| arm);
+
+            // The pattern for the outer match on the tag, with a good span
             let tag_span: Span = inner_cases
                 .iter()
                 .map(|(span, _)| span)
@@ -281,6 +273,16 @@ impl ToTokens for CaseOutput {
                 .fold1(|s, t| s.join(t).unwrap_or(s))
                 .unwrap_or_else(Span::call_site);
             let pat = quote_spanned!(tag_span=> ::std::option::Option::Some(#tag));
+
+            // The default arm, if one exists, is allowed to be unreachable but always inserted in
+            // the inner match if it exists
+            let default_arm = default.iter().map(|(_, arm)| {
+                quote! {
+                    #[allow(unreachable_patterns)]
+                    #arm
+                }
+            });
+
             quote! {
                 #pat => match unsafe {
                     #vesta_path::Case::<#tag>::case(#value_ident)
@@ -310,6 +312,11 @@ impl ToTokens for CaseOutput {
                         #vesta_path::Case::<#tag>::case(#value_ident)
                     } {
                         #arm
+                        // We need to make this pattern match complete so that this type-checks, but
+                        // the only reason we're generating code at all is for warnings, so here we
+                        // say the next arm is unreachable: it *is* unreachable, because this whole
+                        // match expression is unreachable. This is only a valid assumption because
+                        // all the arms for which this is generated are unreachable.
                         _ => unsafe { #vesta_path::unreachable() }
                     }
                 },
@@ -317,8 +324,15 @@ impl ToTokens for CaseOutput {
             });
 
         // Glue all the arms together
-        let arms = active_arms
-            .chain(exhaustive_arm.chain(default_arm.iter().cloned().chain(unreachable_arms)));
+        let arms = active_arms.chain(
+            exhaustive_arm.chain(
+                default
+                    .iter()
+                    // Unlike in the inner matches, we don't `#[allow(unreachable)]` the default
+                    .map(|(_, arm)| quote!(#arm))
+                    .chain(unreachable_arms),
+            ),
+        );
 
         stream.extend(quote_spanned!(cases_span=> {
             let #value_ident = #scrutinee;
