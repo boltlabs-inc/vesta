@@ -158,7 +158,7 @@ impl<T: Sized> CaseExt for T {}
 
 /// Statically assert that the type of the given value is exhaustive for `N`.
 ///
-/// This function can only be called if `Self: Match<Range = Exhaustive<N>>`. It does nothing
+/// This function can only be called if `T: Match<Range = Exhaustive<N>>`. It does nothing
 /// when called.
 ///
 /// # Examples
