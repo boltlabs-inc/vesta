@@ -12,7 +12,7 @@ use syn::{
     parse_quote,
     spanned::Spanned,
     token::{Brace, Paren, Underscore},
-    Arm, Error, Expr, Ident, LitInt, Pat, PatWild, Path, Token,
+    Arm, Attribute, Error, Expr, Ident, LitInt, Pat, PatWild, Path, Token,
 };
 
 /// Get the absolute path to `vesta`, from within the package itself, the doc tests, or any other
@@ -71,9 +71,14 @@ pub struct CaseArm {
 
 impl Parse for CaseArm {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        // We will fill in these fields:
         let tag;
         let tag_span;
         let mut arm;
+
+        // Parse outer attributes
+        let attrs = input.call(Attribute::parse_outer)?;
+
         if input.peek(Token![_]) {
             // If wildcard pattern, the tag is `None`, parse an arm also with a wildcard pattern
             tag = None;
@@ -109,6 +114,10 @@ impl Parse for CaseArm {
                 underscore_token: Underscore { spans: [tag_span] },
             });
         };
+
+        // Add the previously-parsed outer attributes to the arm
+        arm.attrs.extend(attrs);
+
         Ok(CaseArm { tag, tag_span, arm })
     }
 }

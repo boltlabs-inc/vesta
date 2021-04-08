@@ -35,7 +35,7 @@ pub fn derive_match_derive(input: TokenStream) -> TokenStream {
 }
 
 /// Derive `Match`, `Case`, and `Exhaustive` for a struct or enum, given its declaration.
-pub(crate) fn derive_match_impl(input: TokenStream) -> TokenStream {
+fn derive_match_impl(input: TokenStream) -> TokenStream {
     let DeriveInput {
         ident,
         generics,
