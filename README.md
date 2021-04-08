@@ -1,5 +1,10 @@
 # Vesta
 
+[![Rust](https://github.com/boltlabs-inc/vesta/actions/workflows/rust.yml/badge.svg)](https://github.com/boltlabs-inc/vesta/actions/workflows/rust.yml)
+![license: MIT](https://img.shields.io/github/license/boltlabs-inc/vesta)
+[![crates.io](https://img.shields.io/crates/v/vesta)](https://crates.io/crates/vesta)
+[![docs.rs documentation](https://docs.rs/vesta/badge.svg)](https://docs.rs/vesta)
+
 > A **_vesta_**, otherwise known as a *match case*, is a small container for matches, named
 > after the Roman goddess of the hearth.
 >
