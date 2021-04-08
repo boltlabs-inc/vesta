@@ -14,4 +14,4 @@ categories = ["rust-patterns"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-vesta-macro = { version = "^0.1.1", path = "../vesta-macro" }
+vesta-macro = { version = "0.1", path = "../vesta-macro" }
